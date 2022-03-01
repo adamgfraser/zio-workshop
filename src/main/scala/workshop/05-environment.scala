@@ -10,7 +10,7 @@ object AccessEnvironment extends ZIOAppDefault {
   /**
    * EXERCISE
    *
-   * Using `ZIO.access`, access a `Config` type from the environment, and
+   * Using `ZIO.serviceWith`, access a `Config` type from the environment, and
    * extract the `server` field from it.
    */
   val accessServer: ZIO[Config, Nothing, String] = ???
@@ -18,7 +18,7 @@ object AccessEnvironment extends ZIOAppDefault {
   /**
    * EXERCISE
    *
-   * Using `ZIO.access`, access a `Config` type from the environment, and
+   * Using `ZIO.serviceWith`, access a `Config` type from the environment, and
    * extract the `port` field from it.
    */
   val accessPort: ZIO[Config, Nothing, Int] = ???
@@ -110,11 +110,11 @@ object CakeEnvironment extends ZIOAppDefault {
 
 /**
  * Although there are no requirements on how the ZIO environment may be used to pass context
- * around in an application, for easier composition, ZIO includes a data type called `Has`,
+ * around in an application, for easier composition, ZIO includes a data type called `Environment`,
  * which represents a map from a type to an object that satisfies that type. Sometimes, this is
- * called a "Has Map" or more precisely, a "type-indexed map".
+ * called a "ZEnvironment Map" or more precisely, a "type-indexed map".
  */
-object HasMap extends ZIOAppDefault {
+object ZEnvironmentMap extends ZIOAppDefault {
   trait Logging
   object Logging extends Logging
 
@@ -133,15 +133,15 @@ object HasMap extends ZIOAppDefault {
   /**
    * EXERCISE
    *
-   * Using the `++` operator on `Has`, combine the three maps (`hasLogging`, `hasDatabase`, and
-   * `hasCache`) into a single map that has all three objects.
+   * Using the `++` operator on `ZEnvironment`, combine the three maps (`hasLogging`, `hasDatabase`, and
+   * `environmentCache`) into a single map that has all three objects.
    */
-  val allThree: Database with Cache with Logging = ???
+  val allThree: ZEnvironment[Database] with ZEnvironment[Cache] with ZEnvironment[Logging] = ???
 
   /**
    * EXERCISE
    *
-   * Using `Has#get`, which can retrieve an object stored in the map, retrieve the logging,
+   * Using `ZEnvironment#get`, which can retrieve an object stored in the map, retrieve the logging,
    * database, and cache objects from `allThree`. Note that you will have to specify the type
    * parameter, as it cannot be inferred (the map needs to know which of the objects you want to
    * retrieve, and that can be specified only by type).
@@ -198,7 +198,7 @@ object LayerEnvironment extends ZIOAppDefault {
     /**
      * EXERCISE
      *
-     * Using `ZLayer.fromFunction`, create a layer that requires `Console`
+     * Using a `for` comprehension, create a layer that requires `Console`
      * and uses the console to provide a logging service.
      */
     val live: ZLayer[Console, Nothing, Logging] = ???
@@ -222,26 +222,23 @@ object LayerEnvironment extends ZIOAppDefault {
     /**
      * EXERCISE
      *
-     * Create a layer using `ZLayer.wire` and specifying all the pieces that go into the layer.
+     * Create a layer using `ZLayer.make` and specifying all the pieces that go into the layer.
      */
-    val fullLayer: ZLayer[Any, Nothing, Files with Logging] = ??? // ZLayer.wire[Has[Files] with Has[Logging]](???)
+    val fullLayer: ZLayer[Any, Nothing, Files with Logging] = ???
 
     /**
      * EXERCISE
      *
-     * Using `ZIO#inject`, inject the full layer into the effect to remove its dependencies.
+     * Using `ZIO#provide`, inject the full layer into the effect to remove its dependencies.
      */
     val effect2: ZIO[Any, IOException, Unit] = ???
 
     /**
      * EXERCISE
      *
-     * Run `effect` by using `ZIO#inject` to give it what it needs. You will have
+     * Run `effect` by using `ZIO#provide` to give it what it needs. You will have
      * to give it a list of services that implement its required dependencies.
      */
-    // effect
-    //   .inject(???)
-    //   .exitCode
     ???
   }
 }
