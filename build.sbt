@@ -10,8 +10,7 @@ lazy val root = project
       """|import zio._
          |import zio.Console._
          |implicit class RunSyntax[E, A](io: ZIO[ZEnv, E, A]){ def unsafeRun: A = Runtime.default.unsafeRun(io) }
-    """.stripMargin,
-    fork := true
+    """.stripMargin
   )
 
 addCommandAlias("fmt", "all scalafmtSbt scalafmt test:scalafmt")

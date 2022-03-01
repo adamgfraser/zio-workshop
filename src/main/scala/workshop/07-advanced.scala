@@ -1,7 +1,6 @@
-package net.degoes.zio
+package workshop
 
 import zio._
-import zio.internal.Executor
 import scala.concurrent.ExecutionContext
 
 object PoolLocking extends ZIOAppDefault {
@@ -64,7 +63,7 @@ object PlatformTweaking {
    *
    * Modify the default platform by specifying a custom behavior for logging errors.
    */
-  lazy val platform = Platform.default.copy(loggers = ???)
+  lazy val platform = RuntimeConfig.default.copy(loggers = ???)
 
   val environment = Runtime.default.environment
 

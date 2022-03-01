@@ -1,4 +1,4 @@
-package net.degoes.zio
+package workshop
 
 import zio.{ ExitCode, ZIO }
 import zio.test._
