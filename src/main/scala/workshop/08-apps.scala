@@ -14,6 +14,14 @@ object SimpleActor extends ZIOAppDefault {
 
   type TemperatureActor = Command => Task[Double]
 
+  // Actor has mailbox where it can receive some input and do some processing
+
+  // Promise
+  // "Box"
+  // Starts out empty
+  // Exactly one time we can fill it with a value
+  // We can wait for it to be full
+
   /**
    * EXERCISE
    *
@@ -23,20 +31,32 @@ object SimpleActor extends ZIOAppDefault {
   def makeActor(initialTemperature: Double): UIO[TemperatureActor] = {
     type Bundle = (Command, Promise[Nothing, Double])
 
-    ???
+    for {
+      queue <- Queue.bounded[Bundle](128)
+      ref   <- Ref.make(initialTemperature)
+      _ <- queue.take.flatMap {
+            case (ReadTemperature, promise) =>
+              ref.get.flatMap(promise.succeed(_))
+            case (AdjustTemperature(value), promise) =>
+              ref.getAndSet(value).flatMap(promise.succeed(_))
+          }.forever.forkDaemon
+    } yield (command: Command) =>
+      for {
+        promise <- Promise.make[Nothing, Double]
+        _       <- queue.offer((command, promise))
+        temp    <- promise.await
+      } yield temp
   }
 
   val run = {
     val temperatures = (0 to 100).map(_.toDouble)
 
-    (for {
+    for {
       actor <- makeActor(0)
-      _ <- ZIO.foreachPar(temperatures) { temp =>
-            actor(AdjustTemperature(temp))
-          }
-      temp <- actor(ReadTemperature)
-      _    <- printLine(s"Final temperature is ${temp}")
-    } yield ()).exitCode
+      _     <- ZIO.foreachPar(temperatures)(temp => actor(AdjustTemperature(temp)))
+      temp  <- actor(ReadTemperature)
+      _     <- printLine(s"Final temperature is ${temp}")
+    } yield ()
   }
 }
 
@@ -204,7 +224,11 @@ object Hangman extends ZIOAppDefault {
    * Implement an effect that gets a single, lower-case character from
    * the user.
    */
-  lazy val getChoice: ZIO[Console, IOException, Char] = ???
+  lazy val getChoice: ZIO[Console, IOException, Char] =
+    for {
+      _      <- Console.printLine("Please enter a single character:")
+      string <- Console.readLine
+    } yield string(0).toLower
 
   /**
    * EXERCISE
@@ -212,7 +236,11 @@ object Hangman extends ZIOAppDefault {
    * Implement an effect that prompts the user for their name, and
    * returns it.
    */
-  lazy val getName: ZIO[Console, IOException, String] = ???
+  lazy val getName: ZIO[Console, IOException, String] =
+    for {
+      _    <- Console.printLine("Please enter your name:")
+      name <- Console.readLine
+    } yield name
 
   /**
    * EXERCISE
@@ -220,7 +248,11 @@ object Hangman extends ZIOAppDefault {
    * Implement an effect that chooses a random word from the dictionary.
    * The dictionary is `Dictionary.Dictionary`.
    */
-  lazy val chooseWord: ZIO[Random, Nothing, String] = ???
+  lazy val chooseWord: ZIO[Random, Nothing, String] = {
+    val dictionary = Dictionary
+    val length     = dictionary.length
+    Random.nextIntBounded(length).map(dictionary)
+  }
 
   /**
    * EXERCISE
@@ -228,7 +260,28 @@ object Hangman extends ZIOAppDefault {
    * Implement the main game loop, which gets choices from the user until
    * the game is won or lost.
    */
-  def gameLoop(oldState: State): ZIO[Console, IOException, Unit] = ???
+  def gameLoop(oldState: State): ZIO[Console, IOException, Unit] =
+    for {
+      char     <- getChoice
+      newState = oldState.addChar(char)
+      result   = analyzeNewInput(oldState, newState, char)
+      _ <- result match {
+            case GuessResult.Won  => Console.printLine("You won!")
+            case GuessResult.Lost => Console.printLine("You lost!")
+            case GuessResult.Correct =>
+              Console.printLine("You guessed correctly!") *>
+                renderState(newState) *>
+                gameLoop(newState)
+            case GuessResult.Incorrect =>
+              Console.printLine("You guessed incorrectly!") *>
+                renderState(newState) *>
+                gameLoop(newState)
+            case GuessResult.Unchanged =>
+              Console.printLine("You guessed that letter already") *>
+                renderState(newState) *>
+                gameLoop(newState)
+          }
+    } yield ()
 
   def renderState(state: State): ZIO[Console, IOException, Unit] = {
 
@@ -289,7 +342,7 @@ object Hangman extends ZIOAppDefault {
    *
    * Execute the main function and verify your program works as intended.
    */
-  val run = {
+  val run =
     for {
       name  <- getName
       word  <- chooseWord
@@ -297,7 +350,6 @@ object Hangman extends ZIOAppDefault {
       _     <- renderState(state)
       _     <- gameLoop(state)
     } yield ()
-  }.exitCode
 }
 
 object TicTacToe extends ZIOAppDefault {

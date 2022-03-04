@@ -11,10 +11,11 @@ object PoolLocking extends ZIOAppDefault {
   /**
    * EXERCISE
    *
-   * Using `ZIO#lock`, write an `onDatabase` combinator that runs the
+   * Using `ZIO#onExecutor`, write an `onDatabase` combinator that runs the
    * specified effect on the database thread pool.
    */
-  def onDatabase[R, E, A](zio: ZIO[R, E, A]): ZIO[R, E, A] = ???
+  def onDatabase[R, E, A](zio: ZIO[R, E, A]): ZIO[R, E, A] =
+    zio.onExecutor(dbPool)
 
   /**
    * EXERCISE
@@ -33,7 +34,7 @@ object PoolLocking extends ZIOAppDefault {
       println(s"Thread($id, $name, $groupName)")
     }
 
-    zio
+    log *> zio <* log
   }
 
   /**
@@ -43,18 +44,18 @@ object PoolLocking extends ZIOAppDefault {
    * determine which threads are executing which effects.
    */
   val run =
-    (printLine("Main") *>
+    threadLogged(printLine("Main")) *>
       onDatabase {
-        printLine("Database") *>
+        threadLogged(printLine("Database")) *>
           ZIO.blocking {
-            printLine("Blocking")
+            threadLogged(printLine("Blocking"))
           } *>
-          printLine("Database")
+          threadLogged(printLine("Database"))
       } *>
-      printLine("Main")).exitCode
+      threadLogged(printLine("Main"))
 }
 
-object PlatformTweaking {
+object PlatformTweaking extends scala.App {
   import Console._
   import zio.internal.Platform
 
@@ -67,14 +68,37 @@ object PlatformTweaking {
 
   val environment = Runtime.default.environment
 
+  val myWorkflow =
+    ZIO.logInfo("Hello from ZIO!")
+
+  val logger: ZLogger[String, Unit] =
+    new ZLogger[String, Unit] {
+      def apply(
+        trace: ZTraceElement,
+        fiberId: FiberId,
+        logLevel: LogLevel,
+        message: () => String,
+        context: Map[FiberRef.Runtime[_], AnyRef],
+        spans: List[LogSpan],
+        location: ZTraceElement,
+        annotations: Map[String, String]
+      ): Unit =
+        println(s"$logLevel: ${message()}")
+    }
+
   /**
    * EXERCISE
    *
    * Create a custom runtime using `platform` and `environment`, and use this to
    * run an effect.
    */
-  lazy val customRuntime: Runtime[ZEnv] = ???
-  def exampleRun                        = customRuntime.unsafeRun(printLine("Test effect"))
+  lazy val customRuntime: Runtime[ZEnv] = Runtime.default.mapRuntimeConfig { defaultRuntimeConfig =>
+    defaultRuntimeConfig.copy(loggers = defaultRuntimeConfig.loggers.add(logger))
+  }
+  val exampleRun = customRuntime.unsafeRun(myWorkflow)
+
+// [info] timestamp=2022-03-02T18:49:13.328670Z level=INFO thread=#zio-fiber-0 message="Hello from ZIO!" location=workshop.PlatformTweaking.myWorkflow file=07-advanced.scala line=72
+// [info] LogLevel(20000,INFO,6): Hello from ZIO!
 }
 
 object Sharding extends ZIOAppDefault {
@@ -93,7 +117,33 @@ object Sharding extends ZIOAppDefault {
     queue: Queue[A],
     n: Int,
     worker: A => ZIO[R, E, Unit]
-  ): ZIO[R, Nothing, E] = ???
+  ): ZIO[R, Nothing, E] = {
+
+    def shardWorker(ref: Ref[Option[E]]): ZIO[R, Nothing, Unit] =
+      ref.get.flatMap {
+        case Some(_) =>
+          ZIO.unit
+        case None =>
+          queue.take
+            .flatMap(worker)
+            .foldZIO(
+              e =>
+                ref.update {
+                  case None    => Some(e)
+                  case Some(e) => Some(e)
+                },
+              _ => shardWorker(ref)
+            )
+
+      }
+
+    for {
+      ref     <- Ref.make[Option[E]](None)
+      workers <- ZIO.collectAll(Chunk.fill(n)(shardWorker(ref).fork))
+      _       <- ZIO.foreach(workers)(_.join)
+      error   <- ref.get
+    } yield error.get
+  }
 
   val run = {
     def makeWorker(ref: Ref[Int]): Int => ZIO[Console, String, Unit] =
@@ -105,12 +155,12 @@ object Sharding extends ZIOAppDefault {
           _ <- ref.update(_ + 1)
         } yield ()
 
-    (for {
+    for {
       queue <- Queue.bounded[Int](100)
       ref   <- Ref.make(0)
       _     <- queue.offer(1).forever.fork
       error <- shard(queue, 10, makeWorker(ref))
       _     <- printLine(s"Failed with ${error}")
-    } yield ()).exitCode
+    } yield ()
   }
 }

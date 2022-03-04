@@ -1,7 +1,9 @@
 package workshop
 
+import zio.Chunk
+
 object Dictionary {
-  val Dictionary = List(
+  val Dictionary = Chunk(
     "aaron",
     "abelian",
     "ability",

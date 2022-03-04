@@ -2,14 +2,57 @@ package workshop
 
 import zio._
 
-object Retry {
+object Retry extends ZIOAppDefault {
+
+  // Schedule[-Env, -In, +Out]
+
+  // ZIO[R, E, A]
+
+  // Repeating
+  // Schedule[R, A, B]
+
+  // Retrying
+  // Schedule[R, E, A]
+
+  object ScheduleImplementation {
+    import Schedule._
+    import java.time.OffsetDateTime
+
+    trait Schedule[-Env, -In, +Out] {
+
+      type State
+
+      def initial: State
+
+      def step(now: OffsetDateTime, in: In, state: State)(
+        implicit
+        trace: ZTraceElement
+      ): ZIO[Env, Nothing, (State, Out, Decision)]
+    }
+
+    object Schedule {
+
+      sealed trait Decision
+
+      object Decision {
+        final case class Continue(interval: Interval) extends Decision
+        case object Done                              extends Decision
+      }
+
+      sealed abstract class Interval private (val start: OffsetDateTime, val end: OffsetDateTime)
+    }
+  }
 
   /**
    * EXERCISE
    *
    * Using `Schedule.recurs`, create a schedule that recurs 5 times.
    */
-  val fiveTimes: Schedule[Any, Any, Int] = ???
+  val fiveTimes: Schedule[Any, Any, Long] =
+    Schedule.recurs(5)
+
+  // ZIO.repeat
+  // ZIO.retry
 
   /**
    * EXERCISE
@@ -17,14 +60,23 @@ object Retry {
    * Using the `ZIO.repeat`, repeat printing "Hello World" five times to the
    * console.
    */
-  val repeated1 = ???
+  val repeated1 =
+    Console.printLine("Hello World").repeat(fiveTimes)
+
+// Hello World
+// Hello World
+// Hello World
+// Hello World
+// Hello World
+// Hello World
 
   /**
    * EXERCISE
    *
    * Using `Schedule.spaced`, create a schedule that recurs forever every 1 second.
    */
-  val everySecond = ???
+  lazy val everySecond =
+    Schedule.spaced(1.second)
 
   /**
    * EXERCISE
@@ -33,7 +85,14 @@ object Retry {
    * and the `everySecond` schedule, create a schedule that repeats fives times,
    * evey second.
    */
-  val fiveTimesEverySecond = ???
+  lazy val fiveTimesEverySecond =
+    fiveTimes && everySecond
+
+  // def repeat[R, E, A](
+  //   numberOfRepetitions: Int,
+  //   durationBetweenRepetitions: Duration
+  // )(zio: ZIO[R, E, A]) =
+  //   ???
 
   /**
    * EXERCISE
@@ -41,7 +100,15 @@ object Retry {
    * Using the `ZIO#repeat`, repeat the action printLine("Hi hi") using
    * `fiveTimesEverySecond`.
    */
-  val repeated2 = ???
+  lazy val repeated2 =
+    Console.printLine("Hi hi").repeat(fiveTimesEverySecond)
+
+// Hi hi
+// Hi hi
+// Hi hi
+// Hi hi
+// Hi hi
+// Hi hi
 
   /**
    * EXERCISE
@@ -50,15 +117,30 @@ object Retry {
    * schedule, create a schedule that repeats fives times rapidly, and then
    * repeats every second forever.
    */
-  val fiveTimesThenEverySecond = ???
+  lazy val fiveTimesThenEverySecond =
+    fiveTimes andThen everySecond
 
   /**
    * EXERCISE
    *
    * Using `ZIO#retry`, retry the following error a total of five times.
    */
-  val error1   = IO.fail("Uh oh!")
-  val retried5 = ???
+  val error1 = ZIO.debug("About to do something that might fail") *> IO.fail("Uh oh!")
+  lazy val retried5 =
+    error1.retry(fiveTimes)
+
+  // val run =
+  //   retried5
+
+// [info] About to do something that might fail
+// [info] About to do something that might fail
+// [info] About to do something that might fail
+// [info] About to do something that might fail
+// [info] About to do something that might fail
+// [info] About to do something that might fail
+
+// [info] timestamp=2022-03-02T17:44:17.402324Z level=ERROR thread=#zio-fiber-0 message="Exception in thread "zio-fiber-2" java.lang.String: Uh oh!
+// [info]  at workshop.Retry.retried5(06-schedule.scala:129)"
 
   /**
    * EXERCISE
@@ -67,7 +149,8 @@ object Retry {
    * schedule, create a schedule that repeats the minimum of five times and
    * every second.
    */
-  val fiveTimesOrEverySecond = ???
+  lazy val fiveTimesOrEverySecond =
+    fiveTimes || everySecond
 
   /**
    * EXERCISE
@@ -75,7 +158,8 @@ object Retry {
    * Using `Schedule.exponential`, create an exponential schedule that starts
    * from 10 milliseconds.
    */
-  val exponentialSchedule = ???
+  lazy val exponentialSchedule =
+    Schedule.exponential(10.millis)
 
   // (effect orElse otherService).retry(exponentialSchedule).timeout(60.seconds)
 
@@ -84,7 +168,8 @@ object Retry {
    *
    * Using `Schedule.jittered` produced a jittered version of `exponentialSchedule`.
    */
-  val jitteredExponential = ???
+  lazy val jitteredExponential =
+    exponentialSchedule.jittered
 
   /**
    * EXERCISE
@@ -92,7 +177,11 @@ object Retry {
    * Using `Schedule.whileOutput`, produce a filtered schedule from `Schedule.forever`
    * that will halt when the number of recurrences exceeds 100.
    */
-  val oneHundred = ???
+  lazy val oneHundred =
+    Schedule.forever.whileOutput(_ < 100)
+
+  val run =
+    Console.printLine("Hello World").repeat(oneHundred)
 
   /**
    * EXERCISE
@@ -100,7 +189,8 @@ object Retry {
    * Using `Schedule.identity`, produce a schedule that recurs forever, without delay,
    * returning its inputs.
    */
-  def inputs[A]: Schedule[Any, A, A] = ???
+  def inputs[A]: Schedule[Any, A, A] =
+    Schedule.identity
 
   /**
    * EXERCISE
@@ -108,7 +198,8 @@ object Retry {
    * Using `Schedule#collect`, produce a schedule that recurs forever, collecting its
    * inputs into a list.
    */
-  def collectedInputs[A]: Schedule[Any, A, List[A]] = ???
+  def collectedInputs[A]: Schedule[Any, A, Chunk[A]] =
+    Schedule.collectAll
 
   /**
    * EXERCISE
@@ -116,7 +207,8 @@ object Retry {
    * Using  `*>` (`zipRight`), combine `fiveTimes` and `everySecond` but return
    * the output of `everySecond`.
    */
-  val fiveTimesEverySecondR = ???
+  lazy val fiveTimesEverySecondR =
+    fiveTimes *> everySecond
 
   /**
    * EXERCISE
@@ -129,5 +221,11 @@ object Retry {
    */
   import zio.Random
   import Schedule.{ collectAll, exponential, fixed, recurs }
-  def mySchedule[A]: Schedule[ZEnv, A, List[A]] = ???
+  def mySchedule[A]: Schedule[ZEnv, A, Chunk[A]] = {
+    val exponential   = Schedule.exponential(10.millis)
+    val spaced        = Schedule.spaced(50.seconds)
+    val hundredTimes  = Schedule.recurs(100)
+    val collectInputs = Schedule.collectAll[A]
+    ((exponential || spaced) && hundredTimes).jittered *> collectInputs
+  }
 }
